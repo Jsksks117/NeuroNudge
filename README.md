@@ -1,140 +1,70 @@
-# NeuroNudge: Passive Learning Difficulty Screener
+# Getting Started with Create React App
 
-**Neuronudge** is a privacy-focused web application that passively analyzes user learning behaviors—such as typing, mouse movement, and webcam attention—to screen for potential learning difficulties like ADHD and dyslexia. All processing is done locally; no data is stored or sent externally.
+This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
-## Features
+## Available Scripts
 
-- **Task Modes:** Supports Video Learning, Quiz Assessment, and Note Taking.
-- **Behavior Tracking:** Monitors typing speed, backspace rate, idle time, mouse speed, click frequency, and webcam-based attention.
-- **ML-Powered Analysis:** Uses task-specific machine learning models to predict ADHD and dyslexia indicators.
-- **LLM-Generated Reports:** Summarizes findings and provides recommendations using a large language model.
-- **Modern UI:** Responsive, accessible, and visually appealing interface.
-- **Privacy First:** All data is processed in-browser and on-device.
+In the project directory, you can run:
 
-## Getting Started
+### `npm start`
 
-### Prerequisites
+Runs the app in the development mode.\
+Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
 
-- Python 3.8+
-- pip
-- Webcam (for attention tracking)
-- Modern web browser
+The page will reload when you make changes.\
+You may also see any lint errors in the console.
 
-### Installation
+### `npm test`
 
-1. **Clone the repository:**
-   ```bash
-   git clone <repo-url>
-   cd <repo-directory>
-   ```
+Launches the test runner in the interactive watch mode.\
+See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
 
-2. **Install dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
+### `npm run build`
 
-3. **(Optional) Train your own models:**
-   - To retrain the ML models, run:
-     ```bash
-     python train_models.py
-     ```
-   - This will generate new models in the `models/` directory.
+Builds the app for production to the `build` folder.\
+It correctly bundles React in production mode and optimizes the build for the best performance.
 
-4. **Set up Groq API key (for LLM reports):**
-   - Set the environment variable `GROQ_API_KEY` with your Groq API key.
-   - Example (Windows):
-     ```
-     set GROQ_API_KEY=your_key_here
-     ```
+The build is minified and the filenames include the hashes.\
+Your app is ready to be deployed!
 
-### Running the App
+See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
 
-```bash
-python app.py
-```
+### `npm run eject`
 
-- Open your browser and go to `http://127.0.0.1:5000/`
+**Note: this is a one-way operation. Once you `eject`, you can't go back!**
 
-## Usage
+If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
 
-1. **Select a Task:** Choose between Video Learning, Quiz Assessment, or Note Taking.
-2. **Interact:** Type in the provided area, move your mouse, and allow webcam access for attention tracking.
-3. **Generate Report:** Click "Generate Behavior Report" to receive a detailed analysis and recommendations.
+Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
 
-## Project Structure
+You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
 
-```
-.
-├── app.py                  # Main Flask backend
-├── train_models.py         # Script to train ML models
-├── requirements.txt        # Python dependencies
-├── templates/
-│   └── index.html          # Main UI template
-├── static/
-│   ├── css/style.css       # App styling
-│   └── js/main.js          # Frontend logic
-├── models/                 # Pretrained ML models and scalers
-└── extension/             # Browser extension files
-```
+## Learn More
 
-## Technologies Used
+You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
 
-- **Backend:**
-  - Flask (Web Framework)
-  - scikit-learn (Machine Learning)
-  - joblib (Model Persistence)
-  - mediapipe (Face/Attention Tracking)
-  - opencv-python (Image Processing)
-  - numpy (Numerical Computing)
-  - Groq (LLM API)
+To learn React, check out the [React documentation](https://reactjs.org/).
 
-- **Frontend:**
-  - HTML5
-  - CSS3 (Modern UI with CSS Variables)
-  - JavaScript (ES6+)
-  - MediaDevices API (Webcam Access)
+### Code Splitting
 
-## Machine Learning Models
+This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
 
-The application uses task-specific Random Forest Classifiers for both ADHD and dyslexia prediction. Each task (video, quiz, notes) has its own set of models with specific feature weights:
+### Analyzing the Bundle Size
 
-### Features Tracked
-- Typing Speed
-- Backspace Rate
-- Idle Time Ratio
-- Mouse Speed
-- Click Frequency
-- Attention Score
+This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
 
-### Model Training
-Models are trained using synthetic data that simulates typical patterns for ADHD and dyslexia indicators. The training script (`train_models.py`) generates this data and trains separate models for each task type.
+### Making a Progressive Web App
 
-## Privacy Notice
+This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
 
-⚠️ This application tracks typing, mouse, and webcam attention **locally** for analysis. No data is stored or transmitted externally. All processing happens in your browser and on your device.
+### Advanced Configuration
 
-## Customization
+This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
 
-- **Styling:** Edit `static/css/style.css` for UI changes
-- **Frontend Logic:** Modify `static/js/main.js`
-- **Model Training:** Adjust `train_models.py` for new features or data
-- **Task Types:** Add new task types in `app.py` and corresponding models
+### Deployment
 
-## Contributing
+This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+### `npm run build` fails to minify
 
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Acknowledgements
-
-- MediaPipe for face/attention tracking
-- scikit-learn for ML models
-- Groq for LLM-powered reporting
-- Flask for the web framework 
+This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
