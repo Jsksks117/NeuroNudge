@@ -1,62 +1,37 @@
-import React, { useState } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import Navigation from './components/Navigation';
-import Home from './pages/Home';
-import Activities from './components/learning/LearningActivities';
-import Dashboard from './components/dashboard/Dashboard';
-import Auth from './pages/Auth';
-import ParentProgress from './components/parent/ParentProgress';
-import './styles/main.css';
+import './App.css';
+import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
+import Landing from './Landing/landing';
+import Login from './Login/login';
+import Navbar from './Navbar';
+import Reg from './Reg/reg';
+import Profile from './Profile/profile';
+import EightQueensGame from './Training/8Queens/EigthQueen';
+import MemoryGame from './Training/MemoryGame/memorygame';
+import TowerOfHanoi from './Training/Hanoi/hanoi';
+import NumberPuzzle from './Training/NumPuzzle/arrange';
+import Training from './Training/training';
+import Footer from './Footer';
 
-const App = () => {
-  const [accessibilityMode, setAccessibilityMode] = useState({
-    highContrast: false,
-    dyslexiaFriendly: false,
-    fontSize: 'medium'
-  });
-
-  const toggleAccessibility = (mode) => {
-    setAccessibilityMode(prev => ({
-      ...prev,
-      [mode]: !prev[mode]
-    }));
-  };
-
-  const changeFontSize = (size) => {
-    setAccessibilityMode(prev => ({
-      ...prev,
-      fontSize: size
-    }));
-  };
-
-  const handleAuthSuccess = (role) => {
-    console.log('Auth successful, user role:', role);
-    // Add any additional logic needed after successful authentication
-  };
-
+function App() {
   return (
-    <Router>
-      <div className={`App ${accessibilityMode.highContrast ? 'high-contrast' : ''} 
-                    ${accessibilityMode.dyslexiaFriendly ? 'dyslexia-friendly' : ''} 
-                    font-size-${accessibilityMode.fontSize}`}>
-        <Navigation 
-          accessibilityMode={accessibilityMode}
-          toggleAccessibility={toggleAccessibility}
-          changeFontSize={changeFontSize}
-        />
-        
-        <main className="main-content">
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/auth" element={<Auth onAuthSuccess={handleAuthSuccess} />} />
-            <Route path="/activities" element={<Activities />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/parentprogress" element={<ParentProgress />} />
-          </Routes>
-        </main>
-      </div>
-    </Router>
+    <div className="App">
+      <Router>
+        <Navbar/>
+        <Routes>
+          <Route path="/" element = {<Landing/>}/>
+          <Route path="/login" element = {<Login/>}/>
+          <Route path="/register" element = {<Reg/>}/>
+          <Route path='/profile' element = {<Profile />}/>
+          <Route path='/eightQueen' element = {<EightQueensGame />} />
+          <Route path='/memorygame' element = {<MemoryGame/>} />
+          <Route path='/hanoi' element = {<TowerOfHanoi/>} />
+          <Route path='/numberpuzzle' element = {<NumberPuzzle />} />
+          <Route path='/training' element = {<Training />} />
+        </Routes>
+        <Footer />
+      </Router>
+    </div>
   );
-};
+}
 
 export default App;
