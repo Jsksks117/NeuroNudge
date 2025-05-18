@@ -1,0 +1,2118 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+4. Repository files, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+<additional_info>
+
+</additional_info>
+
+</file_summary>
+
+<directory_structure>
+app.py
+enhanced_model.ipynb
+extension/background.js
+extension/content.js
+extension/create_icons.py
+extension/icon16.svg
+extension/icons/icon.svg
+extension/manifest.json
+extension/popup.html
+extension/popup.js
+requirements.txt
+static/css/style.css
+static/js/main.js
+templates/index.html
+train_models.py
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="app.py">
+from flask import Flask, render_template, request, jsonify
+import mediapipe as mp
+import cv2
+import time
+import joblib
+import numpy as np
+from datetime import datetime
+import base64
+import json
+import groq
+import os
+
+app = Flask(__name__)
+
+# Initialize Groq client
+client = groq.Groq(api_key=os.getenv('GROQ_API_KEY', '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'))
+
+# Load ML models for different tasks
+task_models = {
+    "video": {
+        "adhd": joblib.load("models/video_adhd_model.pkl"),
+        "dyslexia": joblib.load("models/video_dyslexia_model.pkl")
+    },
+    "quiz": {
+        "adhd": joblib.load("models/quiz_adhd_model.pkl"),
+        "dyslexia": joblib.load("models/quiz_dyslexia_model.pkl")
+    },
+    "notes": {
+        "adhd": joblib.load("models/notes_adhd_model.pkl"),
+        "dyslexia": joblib.load("models/notes_dyslexia_model.pkl")
+    }
+}
+
+# Task-specific feature scalers
+task_scalers = {
+    "video": joblib.load("models/video_scaler.pkl"),
+    "quiz": joblib.load("models/quiz_scaler.pkl"),
+    "notes": joblib.load("models/notes_scaler.pkl")
+}
+
+# Task-specific feature importance weights for ADHD and dyslexia
+TASK_FEATURE_WEIGHTS = {
+    "video": {
+        "adhd": {
+            "typing_speed": 0.1,
+            "backspace_rate": 0.1,
+            "idle_time_ratio": 0.3,
+            "mouse_speed": 0.2,
+            "click_frequency": 0.1,
+            "attention_score": 0.3
+        },
+        "dyslexia": {
+            "typing_speed": 0.2,
+            "backspace_rate": 0.2,
+            "idle_time_ratio": 0.1,
+            "mouse_speed": 0.1,
+            "click_frequency": 0.1,
+            "attention_score": 0.1
+        }
+    },
+    "quiz": {
+        "adhd": {
+            "typing_speed": 0.25,
+            "backspace_rate": 0.2,
+            "idle_time_ratio": 0.15,
+            "mouse_speed": 0.2,
+            "click_frequency": 0.1,
+            "attention_score": 0.1
+        },
+        "dyslexia": {
+            "typing_speed": 0.3,
+            "backspace_rate": 0.3,
+            "idle_time_ratio": 0.1,
+            "mouse_speed": 0.1,
+            "click_frequency": 0.1,
+            "attention_score": 0.1
+        }
+    },
+    "notes": {
+        "adhd": {
+            "typing_speed": 0.2,
+            "backspace_rate": 0.15,
+            "idle_time_ratio": 0.3,
+            "mouse_speed": 0.15,
+            "click_frequency": 0.1,
+            "attention_score": 0.1
+        },
+        "dyslexia": {
+            "typing_speed": 0.35,
+            "backspace_rate": 0.35,
+            "idle_time_ratio": 0.1,
+            "mouse_speed": 0.1,
+            "click_frequency": 0.1,
+            "attention_score": 0.1
+        }
+    }
+}
+
+# Initialize MediaPipe face mesh and drawing utilities
+mp_face_mesh = mp.solutions.face_mesh
+mp_drawing = mp.solutions.drawing_utils
+mp_drawing_styles = mp.solutions.drawing_styles
+
+face_mesh = mp_face_mesh.FaceMesh(
+    max_num_faces=1,
+    refine_landmarks=True,
+    min_detection_confidence=0.5,
+    min_tracking_confidence=0.5
+)
+
+# Precise eye landmark indices for MediaPipe Face Mesh
+LEFT_EYE_INDICES = [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398]
+RIGHT_EYE_INDICES = [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246]
+
+# Task-specific thresholds and expectations
+TASK_EXPECTATIONS = {
+    "video": {
+        "expected_mouse_speed": (10, 30),
+        "expected_click_frequency": (1, 3),
+        "expected_attention": (75, 100)
+    },
+    "quiz": {
+        "expected_mouse_speed": (40, 80),
+        "expected_click_frequency": (8, 15),
+        "expected_attention": (85, 100)
+    },
+    "notes": {
+        "expected_mouse_speed": (30, 60),
+        "expected_click_frequency": (5, 10),
+        "expected_attention": (80, 100)
+    }
+}
+
+# Global variables to store session data
+session_data = {
+    'start_time': None,
+    'char_count': 0,
+    'backspaces': 0,
+    'last_length': 0,
+    'total_idle': 0,
+    'last_input_time': None,
+    'mouse_positions': [],
+    'last_mouse_time': None,
+    'distracted_frames': 0,
+    'total_frames': 0,
+    'last_attention_score': 100,
+    'current_task': None
+}
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/start_session', methods=['POST'])
+def start_session():
+    data = request.json
+    session_data['start_time'] = time.time()
+    session_data['last_input_time'] = time.time()
+    session_data['current_task'] = data.get('task_type', 'video')  # Default to video
+    return jsonify({'status': 'success'})
+
+@app.route('/update_typing', methods=['POST'])
+def update_typing():
+    data = request.json
+    current_time = time.time()
+    text_len = len(data['text'])
+    
+    if text_len < session_data['last_length']:
+        session_data['backspaces'] += 1
+    elif text_len > session_data['last_length']:
+        session_data['char_count'] += text_len - session_data['last_length']
+        idle_time = current_time - session_data['last_input_time']
+        if idle_time > 2:
+            session_data['total_idle'] += idle_time
+        session_data['last_input_time'] = current_time
+    
+    session_data['last_length'] = text_len
+    return jsonify({'status': 'success'})
+
+@app.route('/update_mouse', methods=['POST'])
+def update_mouse():
+    data = request.json
+    now = time.time()
+    session_data['mouse_positions'].append((now, data['x'], data['y']))
+    return jsonify({'status': 'success'})
+
+@app.route('/process_frame', methods=['POST'])
+def process_frame():
+    data = request.json
+    # Convert base64 image to numpy array
+    img_data = base64.b64decode(data['image'].split(',')[1])
+    nparr = np.frombuffer(img_data, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    
+    # Convert to RGB for MediaPipe
+    rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    
+    # Process frame with MediaPipe Face Mesh
+    results = face_mesh.process(rgb_img)
+    session_data['total_frames'] += 1
+    
+    # Create a copy of the image for drawing
+    annotated_img = img.copy()
+    
+    # Check if eyes are detected and get landmarks
+    eyes_detected = False
+    if results.multi_face_landmarks:
+        face_landmarks = results.multi_face_landmarks[0]
+        if len(face_landmarks.landmark) >= 468:  # Face mesh has 468 landmarks
+            eyes_detected = True
+            # Always draw eye contours when eyes are detected
+            eye_connection_spec = mp_drawing.DrawingSpec(
+                color=(0, 255, 0),  # Green color
+                thickness=2         # Thicker lines for contours
+            )
+            for eye_indices in [LEFT_EYE_INDICES, RIGHT_EYE_INDICES]:
+                connections = [(eye_indices[i], eye_indices[(i + 1) % len(eye_indices)]) for i in range(len(eye_indices))]
+                mp_drawing.draw_landmarks(
+                    image=annotated_img,
+                    landmark_list=face_landmarks,
+                    connections=connections,
+                    landmark_drawing_spec=None,
+                    connection_drawing_spec=eye_connection_spec
+                )
+    
+    if not eyes_detected:
+        session_data['distracted_frames'] += 1
+    
+    attention_score = 100 * (1 - session_data['distracted_frames'] / session_data['total_frames']) if session_data['total_frames'] > 0 else 100
+    
+    # Check if attention score is increasing
+    is_attention_increasing = attention_score > session_data['last_attention_score']
+    session_data['last_attention_score'] = attention_score
+    
+    # Convert annotated image back to base64
+    _, buffer = cv2.imencode('.jpg', annotated_img)
+    annotated_img_base64 = base64.b64encode(buffer).decode('utf-8')
+    
+    return jsonify({
+        'status': 'success',
+        'attention_score': attention_score,
+        'eyes_detected': eyes_detected,
+        'is_attention_increasing': is_attention_increasing,
+        'annotated_image': f'data:image/jpeg;base64,{annotated_img_base64}'
+    })
+
+def generate_llm_report(metrics, task_type):
+    """Generate a contextual report using Groq LLM based on task type, metrics, and model predictions."""
+    
+    # Get user interactions from the session data
+    user_interactions = {
+        'typing_pattern': {
+            'total_chars': session_data['char_count'],
+            'backspaces': session_data['backspaces'],
+            'idle_time': session_data['total_idle']
+        },
+        'attention_data': {
+            'distracted_frames': session_data['distracted_frames'],
+            'total_frames': session_data['total_frames'],
+            'attention_score': metrics['attention_score']
+        },
+        'mouse_activity': {
+            'total_movements': len(session_data['mouse_positions']),
+            'avg_speed': metrics['mouse_speed'],
+            'click_frequency': metrics['click_frequency']
+        }
+    }
+    
+    # Get model predictions and feature contributions
+    prediction_details = metrics['prediction_details']
+    adhd_details = prediction_details['adhd']
+    dyslexia_details = prediction_details['dyslexia']
+    
+    prompt = f"""Analyze the following learning behavior data for a {task_type} task and provide a detailed report focusing on potential ADHD and dyslexia indicators. Format the response in clear sections with bullet points and confidence levels. Do not use markdown headers or formatting.
+
+Task Type: {task_type}
+
+User Interaction Data:
+1. Typing Behavior:
+   - Total Characters Typed: {user_interactions['typing_pattern']['total_chars']}
+   - Number of Backspaces: {user_interactions['typing_pattern']['backspaces']}
+   - Total Idle Time: {user_interactions['typing_pattern']['idle_time']:.2f} seconds
+   - Typing Speed: {metrics['typing_speed']:.2f} chars/sec
+   - Backspace Rate: {metrics['backspace_rate']:.2f}
+   - Idle Time Ratio: {metrics['idle_time_ratio']:.2f}
+
+2. Attention Metrics:
+   - Distracted Frames: {user_interactions['attention_data']['distracted_frames']}
+   - Total Frames: {user_interactions['attention_data']['total_frames']}
+   - Attention Score: {metrics['attention_score']:.2f}%
+
+3. Mouse Activity:
+   - Total Mouse Movements: {user_interactions['mouse_activity']['total_movements']}
+   - Average Mouse Speed: {metrics['mouse_speed']:.2f} px/sec
+   - Click Frequency: {metrics['click_frequency']:.2f} clicks/sec
+
+ADHD Analysis:
+1. Base Prediction: {adhd_details['base_prediction']:.2f}
+2. Weighted Score: {adhd_details['weighted_score']:.2f}
+3. Final Prediction: {adhd_details['final_prediction']:.2f}
+4. Feature Contributions:
+   - Typing Speed Impact: {adhd_details['feature_contributions']['typing_speed']:.3f}
+   - Backspace Rate Impact: {adhd_details['feature_contributions']['backspace_rate']:.3f}
+   - Idle Time Impact: {adhd_details['feature_contributions']['idle_time_ratio']:.3f}
+   - Mouse Speed Impact: {adhd_details['feature_contributions']['mouse_speed']:.3f}
+   - Click Frequency Impact: {adhd_details['feature_contributions']['click_frequency']:.3f}
+   - Attention Score Impact: {adhd_details['feature_contributions']['attention_score']:.3f}
+
+Dyslexia Analysis:
+1. Base Prediction: {dyslexia_details['base_prediction']:.2f}
+2. Weighted Score: {dyslexia_details['weighted_score']:.2f}
+3. Final Prediction: {dyslexia_details['final_prediction']:.2f}
+4. Feature Contributions:
+   - Typing Speed Impact: {dyslexia_details['feature_contributions']['typing_speed']:.3f}
+   - Backspace Rate Impact: {dyslexia_details['feature_contributions']['backspace_rate']:.3f}
+   - Idle Time Impact: {dyslexia_details['feature_contributions']['idle_time_ratio']:.3f}
+   - Mouse Speed Impact: {dyslexia_details['feature_contributions']['mouse_speed']:.3f}
+   - Click Frequency Impact: {dyslexia_details['feature_contributions']['click_frequency']:.3f}
+   - Attention Score Impact: {dyslexia_details['feature_contributions']['attention_score']:.3f}
+
+Please provide a structured report with the following sections:
+
+EXECUTIVE SUMMARY
+- Brief overview of findings
+- Key indicators detected
+- Overall confidence levels
+
+ADHD ASSESSMENT
+- Likelihood Score: [Score] (High/Medium/Low)
+- Key Behavioral Indicators:
+  * List specific behaviors observed
+  * Include confidence levels for each indicator
+- Task-Specific Patterns:
+  * How behaviors manifest in {task_type}
+  * Impact on task performance
+
+DYSLEXIA ASSESSMENT
+- Likelihood Score: [Score] (High/Medium/Low)
+- Key Behavioral Indicators:
+  * List specific behaviors observed
+  * Include confidence levels for each indicator
+- Task-Specific Patterns:
+  * How behaviors manifest in {task_type}
+  * Impact on task performance
+
+RECOMMENDATIONS
+- Immediate Actions:
+  * List specific accommodations
+  * Include confidence in recommendations
+- Further Assessment:
+  * Suggested professional evaluations
+  * Additional data collection
+- Support Strategies:
+  * Task-specific modifications
+  * Environmental adjustments
+
+CONFIDENCE ASSESSMENT
+- Data Quality:
+  * Sample size adequacy
+  * Measurement reliability
+- Model Confidence:
+  * Prediction reliability
+  * Feature importance
+
+Format each section with clear headings, bullet points, and confidence levels. Use specific data points to support each observation and recommendation. Do not use markdown formatting or headers."""
+
+    try:
+        completion = client.chat.completions.create(
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            messages=[
+                {"role": "system", "content": "You are an expert in learning disabilities and behavioral analysis. Provide detailed, evidence-based analysis of potential ADHD and dyslexia indicators, with specific recommendations for support and accommodation. Format your response in clear sections with bullet points and confidence levels. Do not use markdown formatting or headers."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=1.0,
+            max_tokens=1024,
+            top_p=1.0,
+            stream=False
+        )
+        return completion.choices[0].message.content
+    except Exception as e:
+        return f"Error generating report: {str(e)}"
+
+def get_task_specific_prediction(features, task_type):
+    """Get predictions for both ADHD and dyslexia using task-specific models and weights."""
+    try:
+        # Scale features using task-specific scaler
+        scaled_features = task_scalers[task_type].transform(features)
+        
+        # Get predictions from both models
+        adhd_prediction = float(task_models[task_type]["adhd"].predict_proba(scaled_features)[0][1])
+        dyslexia_prediction = float(task_models[task_type]["dyslexia"].predict_proba(scaled_features)[0][1])
+        
+        # Apply task-specific weights to features for each condition
+        adhd_weighted_features = np.multiply(scaled_features[0], list(TASK_FEATURE_WEIGHTS[task_type]["adhd"].values()))
+        dyslexia_weighted_features = np.multiply(scaled_features[0], list(TASK_FEATURE_WEIGHTS[task_type]["dyslexia"].values()))
+        
+        # Calculate weighted scores
+        adhd_weighted_score = float(np.sum(adhd_weighted_features))
+        dyslexia_weighted_score = float(np.sum(dyslexia_weighted_features))
+        
+        # Combine predictions with weighted scores
+        final_adhd_prediction = float((adhd_prediction + adhd_weighted_score) / 2)
+        final_dyslexia_prediction = float((dyslexia_prediction + dyslexia_weighted_score) / 2)
+        
+        # Convert numpy types to Python native types
+        adhd_feature_contributions = {
+            key: float(value) for key, value in zip(TASK_FEATURE_WEIGHTS[task_type]["adhd"].keys(), adhd_weighted_features)
+        }
+        
+        dyslexia_feature_contributions = {
+            key: float(value) for key, value in zip(TASK_FEATURE_WEIGHTS[task_type]["dyslexia"].keys(), dyslexia_weighted_features)
+        }
+        
+        return {
+            'adhd': {
+                'base_prediction': adhd_prediction,
+                'weighted_score': adhd_weighted_score,
+                'final_prediction': final_adhd_prediction,
+                'feature_contributions': adhd_feature_contributions
+            },
+            'dyslexia': {
+                'base_prediction': dyslexia_prediction,
+                'weighted_score': dyslexia_weighted_score,
+                'final_prediction': final_dyslexia_prediction,
+                'feature_contributions': dyslexia_feature_contributions
+            }
+        }
+    except Exception as e:
+        print(f"Error in task-specific prediction: {str(e)}")
+        return None
+
+@app.route('/generate_report', methods=['POST'])
+def generate_report():
+    try:
+        current_time = time.time()
+        if not session_data['start_time']:
+            return jsonify({
+                'status': 'error',
+                'message': 'No active session found. Please start a task first.'
+            }), 400
+
+        if not session_data['current_task']:
+            return jsonify({
+                'status': 'error',
+                'message': 'No task type selected. Please select a task type first.'
+            }), 400
+
+        total_time = current_time - session_data['start_time']
+        if total_time < 5:
+            return jsonify({
+                'status': 'error',
+                'message': 'Session too short. Please continue the task for at least 5 seconds.'
+            }), 400
+        
+        # Calculate metrics
+        typing_speed = float(session_data['char_count'] / total_time if total_time > 0 else 0)
+        backspace_rate = float(session_data['backspaces'] / session_data['char_count'] if session_data['char_count'] > 0 else 0)
+        idle_time_ratio = float(session_data['total_idle'] / total_time if total_time > 0 else 0)
+        
+        # Calculate mouse metrics
+        mouse_speeds = []
+        clicks = 0
+        for i in range(1, len(session_data['mouse_positions'])):
+            t1, x1, y1 = session_data['mouse_positions'][i - 1]
+            t2, x2, y2 = session_data['mouse_positions'][i]
+            dt = t2 - t1
+            if dt > 0:
+                speed = float(((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5 / dt)
+                mouse_speeds.append(speed)
+            if abs(x2 - x1) < 2 and abs(y2 - y1) < 2 and dt < 0.3:
+                clicks += 1
+        
+        avg_mouse_speed = float(np.mean(mouse_speeds) if mouse_speeds else 0)
+        click_frequency = float(clicks / total_time if total_time > 0 else 0)
+        attention_score = float(100 * (1 - session_data['distracted_frames'] / session_data['total_frames']) if session_data['total_frames'] > 0 else 100)
+        
+        # Prepare features for prediction
+        features = np.array([[typing_speed, backspace_rate, idle_time_ratio,
+                            avg_mouse_speed, click_frequency, attention_score]])
+        
+        # Get task-specific predictions
+        prediction_result = get_task_specific_prediction(features, session_data['current_task'])
+        
+        if prediction_result is None:
+            return jsonify({
+                'status': 'error',
+                'message': 'Error generating prediction. Please try again.'
+            }), 500
+        
+        # Prepare metrics for LLM report
+        metrics = {
+            'typing_speed': typing_speed,
+            'backspace_rate': backspace_rate,
+            'idle_time_ratio': idle_time_ratio,
+            'mouse_speed': avg_mouse_speed,
+            'click_frequency': click_frequency,
+            'attention_score': attention_score,
+            'prediction_details': prediction_result
+        }
+        
+        # Generate LLM report
+        llm_report = generate_llm_report(metrics, session_data['current_task'])
+        
+        report_data = {
+            "status": "success",
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "task_type": session_data['current_task'],
+            "metrics": metrics,
+            "adhd_prediction": prediction_result['adhd']['final_prediction'],
+            "dyslexia_prediction": prediction_result['dyslexia']['final_prediction'],
+            "adhd_feature_contributions": prediction_result['adhd']['feature_contributions'],
+            "dyslexia_feature_contributions": prediction_result['dyslexia']['feature_contributions'],
+            "llm_analysis": llm_report
+        }
+        
+        return jsonify(report_data)
+    
+    except Exception as e:
+        app.logger.error(f"Error generating report: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Error generating report: {str(e)}'
+        }), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
+</file>
+
+<file path="enhanced_model.ipynb">
+
+</file>
+
+<file path="extension/background.js">
+// Track if we've shown the notification recently
+let lastNotificationTime = 0;
+const NOTIFICATION_COOLDOWN = 24 * 60 * 60 * 1000; // 24 hours
+
+// Listen for behavior alerts from content script
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'BEHAVIOR_ALERT') {
+        const currentTime = Date.now();
+        
+        // Check if we should show a notification (not shown in last 24 hours)
+        if (currentTime - lastNotificationTime > NOTIFICATION_COOLDOWN) {
+            showNotification(message.data);
+            lastNotificationTime = currentTime;
+        }
+    }
+});
+
+function showNotification(data) {
+    // Create notification content
+    const adhdCount = Object.values(data.adhdIndicators).filter(Boolean).length;
+    const dyslexiaCount = Object.values(data.dyslexiaIndicators).filter(Boolean).length;
+    
+    let message = '';
+    if (adhdCount >= 2 && dyslexiaCount >= 2) {
+        message = 'We noticed some patterns that might indicate potential ADHD and dyslexia.';
+    } else if (adhdCount >= 2) {
+        message = 'We noticed some patterns that might indicate potential ADHD.';
+    } else if (dyslexiaCount >= 2) {
+        message = 'We noticed some patterns that might indicate potential dyslexia.';
+    }
+    
+    // Show notification
+    chrome.notifications.create({
+        type: 'basic',
+        iconUrl: 'icons/icon128.png',
+        title: 'Learning Behavior Monitor',
+        message: message + ' Would you like to learn more?',
+        buttons: [
+            { title: 'Learn More' },
+            { title: 'Not Now' }
+        ],
+        priority: 2
+    });
+}
+
+// Handle notification button clicks
+chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) => {
+    if (buttonIndex === 0) { // "Learn More" button
+        chrome.tabs.create({
+            url: 'http://localhost:5000'
+        });
+    }
+    chrome.notifications.clear(notificationId);
+});
+</file>
+
+<file path="extension/content.js">
+// Behavior monitoring variables
+let typingData = {
+    totalChars: 0,
+    backspaces: 0,
+    lastLength: 0,
+    idleTime: 0,
+    lastInputTime: Date.now()
+};
+
+let mouseData = {
+    positions: [],
+    clicks: 0,
+    lastPosition: null,
+    lastTime: Date.now()
+};
+
+let attentionData = {
+    distractedFrames: 0,
+    totalFrames: 0,
+    lastCheck: Date.now()
+};
+
+// Monitor typing behavior
+document.addEventListener('input', (e) => {
+    const currentTime = Date.now();
+    const textLength = e.target.value.length;
+    
+    if (textLength < typingData.lastLength) {
+        typingData.backspaces++;
+    } else if (textLength > typingData.lastLength) {
+        typingData.totalChars += textLength - typingData.lastLength;
+        const idleTime = currentTime - typingData.lastInputTime;
+        if (idleTime > 2000) {
+            typingData.idleTime += idleTime;
+        }
+        typingData.lastInputTime = currentTime;
+    }
+    
+    typingData.lastLength = textLength;
+});
+
+// Monitor mouse behavior
+document.addEventListener('mousemove', (e) => {
+    const currentTime = Date.now();
+    const currentPosition = { x: e.clientX, y: e.clientY };
+    
+    if (mouseData.lastPosition) {
+        const dx = currentPosition.x - mouseData.lastPosition.x;
+        const dy = currentPosition.y - mouseData.lastPosition.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const timeDiff = currentTime - mouseData.lastTime;
+        
+        if (timeDiff > 0) {
+            mouseData.positions.push({
+                time: currentTime,
+                speed: distance / timeDiff
+            });
+        }
+    }
+    
+    mouseData.lastPosition = currentPosition;
+    mouseData.lastTime = currentTime;
+});
+
+document.addEventListener('click', () => {
+    mouseData.clicks++;
+});
+
+// Monitor attention (tab visibility)
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        attentionData.distractedFrames++;
+    }
+    attentionData.totalFrames++;
+});
+
+// Analyze behavior and send data
+function analyzeBehavior() {
+    const currentTime = Date.now();
+    const sessionDuration = (currentTime - mouseData.lastTime) / 1000;
+    
+    // Calculate metrics
+    const typingSpeed = typingData.totalChars / sessionDuration;
+    const backspaceRate = typingData.backspaces / (typingData.totalChars || 1);
+    const idleTimeRatio = typingData.idleTime / (currentTime - mouseData.lastTime);
+    
+    // Calculate mouse metrics
+    const mouseSpeeds = mouseData.positions.map(p => p.speed);
+    const avgMouseSpeed = mouseSpeeds.reduce((a, b) => a + b, 0) / (mouseSpeeds.length || 1);
+    const clickFrequency = mouseData.clicks / sessionDuration;
+    
+    // Calculate attention score
+    const attentionScore = 100 * (1 - attentionData.distractedFrames / (attentionData.totalFrames || 1));
+    
+    // Check for potential indicators
+    const adhdIndicators = {
+        highMouseSpeed: avgMouseSpeed > 1000,
+        highClickFrequency: clickFrequency > 5,
+        lowAttention: attentionScore < 70,
+        highIdleTime: idleTimeRatio > 0.3
+    };
+    
+    const dyslexiaIndicators = {
+        slowTyping: typingSpeed < 3,
+        highErrorRate: backspaceRate > 0.15,
+        frequentCorrections: typingData.backspaces > 10
+    };
+    
+    // Count indicators
+    const adhdCount = Object.values(adhdIndicators).filter(Boolean).length;
+    const dyslexiaCount = Object.values(dyslexiaIndicators).filter(Boolean).length;
+    
+    // If enough indicators are present, suggest visiting the website
+    if (adhdCount >= 2 || dyslexiaCount >= 2) {
+        chrome.runtime.sendMessage({
+            type: 'BEHAVIOR_ALERT',
+            data: {
+                adhdIndicators,
+                dyslexiaIndicators,
+                metrics: {
+                    typingSpeed,
+                    backspaceRate,
+                    idleTimeRatio,
+                    avgMouseSpeed,
+                    clickFrequency,
+                    attentionScore
+                }
+            }
+        });
+    }
+    
+    // Reset data for next session
+    resetData();
+}
+
+function resetData() {
+    typingData = {
+        totalChars: 0,
+        backspaces: 0,
+        lastLength: 0,
+        idleTime: 0,
+        lastInputTime: Date.now()
+    };
+    
+    mouseData = {
+        positions: [],
+        clicks: 0,
+        lastPosition: null,
+        lastTime: Date.now()
+    };
+    
+    attentionData = {
+        distractedFrames: 0,
+        totalFrames: 0,
+        lastCheck: Date.now()
+    };
+}
+
+// Run analysis every 5 minutes
+setInterval(analyzeBehavior, 5 * 60 * 1000);
+</file>
+
+<file path="extension/create_icons.py">
+from cairosvg import svg2png
+import os
+
+def create_icon(size):
+    svg_path = os.path.join('icons', 'icon.svg')
+    png_path = os.path.join('icons', f'icon{size}.png')
+    
+    with open(svg_path, 'rb') as svg_file:
+        svg2png(file_obj=svg_file, write_to=png_path, output_width=size, output_height=size)
+
+def main():
+    # Create icons for all required sizes
+    sizes = [16, 48, 128]
+    for size in sizes:
+        create_icon(size)
+        print(f'Created icon{size}.png')
+
+if __name__ == '__main__':
+    main()
+</file>
+
+<file path="extension/icon16.svg">
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+    <!-- Background circle -->
+    <circle cx="64" cy="64" r="60" fill="#4CAF50"/>
+    
+    <!-- Brain icon -->
+    <path d="M64 20 C 40 20, 20 40, 20 64 C 20 88, 40 108, 64 108 C 88 108, 108 88, 108 64 C 108 40, 88 20, 64 20 Z" 
+          fill="none" stroke="white" stroke-width="4"/>
+    
+    <!-- Neural connections -->
+    <path d="M40 64 L 88 64" stroke="white" stroke-width="2"/>
+    <path d="M64 40 L 64 88" stroke="white" stroke-width="2"/>
+    <path d="M40 40 L 88 88" stroke="white" stroke-width="2"/>
+    <path d="M40 88 L 88 40" stroke="white" stroke-width="2"/>
+    
+    <!-- Center dot -->
+    <circle cx="64" cy="64" r="8" fill="white"/>
+</svg>
+</file>
+
+<file path="extension/icons/icon.svg">
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+    <!-- Background circle -->
+    <circle cx="64" cy="64" r="60" fill="#4CAF50"/>
+    
+    <!-- Brain icon -->
+    <path d="M64 20 C 40 20, 20 40, 20 64 C 20 88, 40 108, 64 108 C 88 108, 108 88, 108 64 C 108 40, 88 20, 64 20 Z" 
+          fill="none" stroke="white" stroke-width="4"/>
+    
+    <!-- Neural connections -->
+    <path d="M40 64 L 88 64" stroke="white" stroke-width="2"/>
+    <path d="M64 40 L 64 88" stroke="white" stroke-width="2"/>
+    <path d="M40 40 L 88 88" stroke="white" stroke-width="2"/>
+    <path d="M40 88 L 88 40" stroke="white" stroke-width="2"/>
+    
+    <!-- Center dot -->
+    <circle cx="64" cy="64" r="8" fill="white"/>
+</svg>
+</file>
+
+<file path="extension/manifest.json">
+{
+  "manifest_version": 3,
+  "name": "Learning Behavior Monitor",
+  "version": "1.0",
+  "description": "Monitors typing patterns and behavior to detect potential ADHD and dyslexia indicators",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "notifications"
+  ],
+  "host_permissions": [
+    "http://localhost:5000/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": "icons/icon.svg"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ],
+  "icons": {
+    "128": "icons/icon.svg"
+  }
+}
+</file>
+
+<file path="extension/popup.html">
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Learning Behavior Monitor</title>
+    <style>
+        body {
+            width: 300px;
+            padding: 15px;
+            font-family: Arial, sans-serif;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 15px;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            background-color: #f0f0f0;
+        }
+        .button {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            border: none;
+            border-radius: 4px;
+            background-color: #4CAF50;
+            color: white;
+            cursor: pointer;
+        }
+        .button:hover {
+            background-color: #45a049;
+        }
+        .info {
+            font-size: 12px;
+            color: #666;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2>Learning Behavior Monitor</h2>
+    </div>
+    
+    <div class="status">
+        <p>Monitoring your behavior for potential learning differences...</p>
+    </div>
+    
+    <button class="button" id="visitWebsite">Visit Assessment Website</button>
+    
+    <div class="info">
+        <p>This extension monitors typing patterns, mouse movements, and attention to help identify potential ADHD and dyslexia indicators.</p>
+        <p>Your data is processed locally and is not stored or shared.</p>
+    </div>
+    
+    <script src="popup.js"></script>
+</body>
+</html>
+</file>
+
+<file path="extension/popup.js">
+document.addEventListener('DOMContentLoaded', function() {
+    // Handle the "Visit Assessment Website" button click
+    document.getElementById('visitWebsite').addEventListener('click', function() {
+        chrome.tabs.create({ url: 'http://localhost:5000' });
+    });
+
+    // Get the current tab to check if monitoring is active
+    chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+        const currentTab = tabs[0];
+        
+        // Send message to content script to get current status
+        chrome.tabs.sendMessage(currentTab.id, {type: 'GET_STATUS'}, function(response) {
+            if (response && response.monitoring) {
+                updateStatus('Monitoring active');
+            } else {
+                updateStatus('Monitoring not active on this page');
+            }
+        });
+    });
+});
+
+function updateStatus(message) {
+    const statusDiv = document.querySelector('.status p');
+    if (statusDiv) {
+        statusDiv.textContent = message;
+    }
+}
+</file>
+
+<file path="requirements.txt">
+flask
+mediapipe
+opencv-python
+numpy
+joblib
+</file>
+
+<file path="static/css/style.css">
+/* Modern color palette and variables */
+:root {
+    --primary-gradient: linear-gradient(135deg, #00b09b 0%, #96c93d 100%);
+    --secondary-gradient: linear-gradient(135deg, #4b6cb7 0%, #182848 100%);
+    --accent-gradient: linear-gradient(135deg, #ff9966 0%, #ff5e62 100%);
+    --dark-gradient-1: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    --dark-gradient-2: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+    --dark-gradient-3: linear-gradient(135deg, #232526 0%, #414345 100%);
+    --text-primary: #ffffff;
+    --text-secondary: #e0e0e0;
+    --background-light: #1a1a2e;
+    --background-dark: #0f0c29;
+    --success-color: #00b09b;
+    --warning-color: #ff9966;
+    --error-color: #ff5e62;
+    --border-radius: 12px;
+    --box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+    --transition-speed: 0.4s;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    line-height: 1.6;
+    color: var(--text-primary);
+    background: var(--dark-gradient-1);
+    margin: 0;
+    padding: 20px;
+    min-height: 100vh;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 30px;
+    background: var(--dark-gradient-2);
+    border-radius: var(--border-radius);
+    box-shadow: var(--box-shadow);
+    animation: fadeIn 0.8s ease-out;
+}
+
+/* Header styles */
+h1, h2, h3 {
+    color: var(--text-primary);
+    margin-bottom: 1rem;
+}
+
+h1 {
+    font-size: 2.8rem;
+    background: var(--primary-gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-align: center;
+    margin-bottom: 2rem;
+    animation: slideDown 0.8s ease-out;
+}
+
+/* Task selection section */
+.task-selection {
+    background: var(--dark-gradient-3);
+    padding: 25px;
+    border-radius: var(--border-radius);
+    margin-bottom: 25px;
+    box-shadow: var(--box-shadow);
+    transition: transform var(--transition-speed) ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.task-selection::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+    transform: translateX(-100%);
+    transition: transform 0.6s ease;
+}
+
+.task-selection:hover::before {
+    transform: translateX(100%);
+}
+
+.task-select {
+    width: 100%;
+    padding: 15px;
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--border-radius);
+    font-size: 1.1rem;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+    transition: all var(--transition-speed) ease;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--success-color) 50%),
+                      linear-gradient(135deg, var(--success-color) 50%, transparent 50%);
+    background-position: calc(100% - 20px) calc(1em + 2px),
+                         calc(100% - 15px) calc(1em + 2px);
+    background-size: 5px 5px,
+                    5px 5px;
+    background-repeat: no-repeat;
+}
+
+.task-select:focus {
+    border-color: var(--success-color);
+    outline: none;
+    box-shadow: 0 0 0 4px rgba(0, 176, 155, 0.2);
+    transform: scale(1.01);
+}
+
+.task-select option {
+    background: var(--background-dark);
+    color: var(--text-primary);
+    padding: 10px;
+}
+
+/* Webcam container */
+.webcam-container {
+    position: relative;
+    width: 100%;
+    max-width: 640px;
+    margin: 0 auto;
+    background: var(--dark-gradient-1);
+    border-radius: var(--border-radius);
+    overflow: hidden;
+    box-shadow: var(--box-shadow);
+    transition: transform var(--transition-speed) ease;
+}
+
+.webcam-container:hover {
+    transform: scale(1.02);
+}
+
+#webcam {
+    width: 100%;
+    height: auto;
+    display: block;
+    border-radius: var(--border-radius);
+    transition: filter var(--transition-speed) ease;
+}
+
+/* Metrics grid */
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 25px;
+    margin: 25px 0;
+}
+
+.metric-card {
+    background: var(--dark-gradient-3);
+    padding: 25px;
+    border-radius: var(--border-radius);
+    box-shadow: var(--box-shadow);
+    transition: all var(--transition-speed) ease;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.metric-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 4px;
+    background: var(--primary-gradient);
+    transform: scaleX(0);
+    transition: transform var(--transition-speed) ease;
+}
+
+.metric-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3);
+}
+
+.metric-card:hover::before {
+    transform: scaleX(1);
+}
+
+.metric-card h3 {
+    color: var(--text-secondary);
+    margin-top: 0;
+    font-size: 1.3rem;
+    transition: color var(--transition-speed) ease;
+}
+
+.metric-card:hover h3 {
+    color: var(--success-color);
+}
+
+.metric-value {
+    font-size: 2rem;
+    font-weight: bold;
+    background: var(--primary-gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    transition: transform var(--transition-speed) ease;
+}
+
+/* LLM Analysis section */
+.llm-analysis {
+    background: var(--dark-gradient-3);
+    padding: 30px;
+    border-radius: var(--border-radius);
+    margin-top: 25px;
+    box-shadow: var(--box-shadow);
+    transition: transform var(--transition-speed) ease;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.llm-analysis h2 {
+    color: var(--text-primary);
+    border-bottom: 3px solid var(--success-color);
+    padding-bottom: 15px;
+    margin-bottom: 25px;
+    transition: border-color var(--transition-speed) ease;
+    position: relative;
+}
+
+.llm-analysis h2::after {
+    content: '';
+    position: absolute;
+    bottom: -3px;
+    left: 0;
+    width: 50px;
+    height: 3px;
+    background: var(--primary-gradient);
+    transition: width var(--transition-speed) ease;
+}
+
+.llm-analysis:hover h2::after {
+    width: 100px;
+}
+
+/* Buttons */
+button {
+    background: var(--primary-gradient);
+    color: white;
+    border: none;
+    padding: 15px 30px;
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    font-size: 1.1rem;
+    transition: all var(--transition-speed) ease;
+    box-shadow: var(--box-shadow);
+    position: relative;
+    overflow: hidden;
+}
+
+button::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    transition: width 0.6s ease, height 0.6s ease;
+}
+
+button:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 12px 20px rgba(0, 0, 0, 0.3);
+}
+
+button:hover::after {
+    width: 300px;
+    height: 300px;
+}
+
+button:active {
+    transform: translateY(-1px);
+}
+
+/* Form elements */
+input[type="text"] {
+    width: 100%;
+    padding: 15px;
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--border-radius);
+    font-size: 1.1rem;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+    transition: all var(--transition-speed) ease;
+}
+
+input[type="text"]:focus {
+    border-color: var(--success-color);
+    outline: none;
+    box-shadow: 0 0 0 4px rgba(0, 176, 155, 0.2);
+    transform: scale(1.01);
+}
+
+/* Status messages */
+.status-message {
+    padding: 20px;
+    border-radius: var(--border-radius);
+    margin: 15px 0;
+    font-weight: 500;
+    animation: slideIn 0.5s ease-out;
+    position: relative;
+    overflow: hidden;
+}
+
+.status-message::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+    transform: translateX(-100%);
+    transition: transform 0.6s ease;
+}
+
+.status-message:hover::before {
+    transform: translateX(100%);
+}
+
+.status-message.success {
+    background: var(--primary-gradient);
+    color: white;
+    box-shadow: 0 4px 12px rgba(0, 176, 155, 0.3);
+}
+
+.status-message.error {
+    background: var(--accent-gradient);
+    color: white;
+    box-shadow: 0 4px 12px rgba(255, 94, 98, 0.3);
+}
+
+/* Loading spinner */
+.loading {
+    display: inline-block;
+    width: 25px;
+    height: 25px;
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: var(--success-color);
+    animation: spin 1s cubic-bezier(0.68, -0.55, 0.265, 1.55) infinite;
+    box-shadow: 0 0 10px rgba(0, 176, 155, 0.3);
+}
+
+/* Animations */
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .container {
+        padding: 15px;
+    }
+    
+    .metrics-grid {
+        grid-template-columns: 1fr;
+        gap: 15px;
+    }
+    
+    h1 {
+        font-size: 2.2rem;
+    }
+    
+    .metric-card {
+        padding: 20px;
+    }
+    
+    button {
+        padding: 12px 24px;
+    }
+}
+
+/* Additional enhancements */
+.tracking-section {
+    background: var(--dark-gradient-3);
+    border-radius: var(--border-radius);
+    padding: 25px;
+    margin-bottom: 25px;
+    box-shadow: var(--box-shadow);
+    transition: transform var(--transition-speed) ease;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    position: relative;
+    overflow: hidden;
+}
+
+.tracking-section::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background: var(--primary-gradient);
+    transform: scaleX(0);
+    transition: transform var(--transition-speed) ease;
+}
+
+.tracking-section:hover::after {
+    transform: scaleX(1);
+}
+
+#typing-area {
+    width: 100%;
+    height: 200px;
+    padding: 15px;
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--border-radius);
+    font-size: 1.1rem;
+    resize: vertical;
+    margin-top: 15px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+    transition: all var(--transition-speed) ease;
+}
+
+#typing-area:focus {
+    outline: none;
+    border-color: var(--success-color);
+    box-shadow: 0 0 0 4px rgba(0, 176, 155, 0.2);
+    transform: scale(1.01);
+}
+
+.disclaimer {
+    background: linear-gradient(135deg, rgba(255, 243, 205, 0.1) 0%, rgba(255, 238, 186, 0.1) 100%);
+    border: 1px solid rgba(255, 243, 205, 0.2);
+    border-radius: var(--border-radius);
+    padding: 20px;
+    margin: 25px 0;
+    color: var(--text-secondary);
+    box-shadow: var(--box-shadow);
+    transition: transform var(--transition-speed) ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.disclaimer::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.05), transparent);
+    transform: translateX(-100%);
+    transition: transform 0.6s ease;
+}
+
+.disclaimer:hover::before {
+    transform: translateX(100%);
+}
+
+.report-content {
+    line-height: 1.8;
+    white-space: pre-wrap;
+    padding: 20px;
+    background: var(--dark-gradient-3);
+    border-radius: var(--border-radius);
+    box-shadow: var(--box-shadow);
+    transition: transform var(--transition-speed) ease;
+    color: var(--text-primary);
+}
+
+.report-content:hover {
+    transform: translateY(-2px);
+}
+
+/* Attention Score */
+#attention-score {
+    text-align: center;
+    font-size: 1.2rem;
+    margin-top: 1rem;
+    font-weight: bold;
+}
+
+/* Report Section */
+.primary-button {
+    background: var(--primary-gradient);
+    color: white;
+    border: none;
+    padding: 15px 30px;
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    font-size: 1.1rem;
+    transition: all var(--transition-speed) ease;
+    box-shadow: var(--box-shadow);
+    position: relative;
+    overflow: hidden;
+}
+
+.primary-button::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+    transition: left 0.6s ease;
+}
+
+.primary-button:hover::before {
+    left: 100%;
+}
+
+.primary-button:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 12px 20px rgba(0, 0, 0, 0.3);
+}
+
+#report-results {
+    margin-top: 2rem;
+    padding: 1rem;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+}
+
+#report-results.hidden {
+    display: none;
+}
+
+.metric {
+    margin: 0.5rem 0;
+    padding: 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.metric:last-child {
+    border-bottom: none;
+}
+
+.metric .label {
+    font-weight: bold;
+    color: var(--secondary-color);
+}
+
+.metric .value {
+    color: var(--primary-color);
+    font-weight: bold;
+}
+
+.metric.prediction {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 2px solid var(--border-color);
+    font-size: 1.2rem;
+}
+
+/* Mouse Stats */
+#mouse-stats {
+    text-align: center;
+    padding: 1rem;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+}
+
+/* Metrics Grid */
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+/* LLM Analysis */
+.llm-analysis {
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-top: 2rem;
+}
+
+.llm-analysis h3 {
+    color: var(--secondary-color);
+    margin-bottom: 1rem;
+}
+
+.report-content {
+    line-height: 1.6;
+    white-space: pre-wrap;
+}
+</file>
+
+<file path="static/js/main.js">
+// Initialize variables
+let startTime = null;
+let lastInputTime = null;
+let charCount = 0;
+let backspaces = 0;
+let lastLength = 0;
+let totalIdle = 0;
+let mousePositions = [];
+let lastMouseTime = null;
+let distractedFrames = 0;
+let totalFrames = 0;
+let videoStream = null;
+let currentTask = 'reading';
+
+// DOM Elements
+const typingArea = document.getElementById('typing-area');
+const generateReportBtn = document.getElementById('generate-report');
+const reportResults = document.getElementById('report-results');
+const webcam = document.getElementById('webcam');
+const overlay = document.getElementById('overlay');
+const attentionScoreSpan = document.getElementById('attention-score');
+const taskSelect = document.getElementById('task-type');
+
+// Start session when page loads
+document.addEventListener('DOMContentLoaded', () => {
+    setupWebcam();
+    setupEventListeners();
+});
+
+// Start a new task
+async function startTask() {
+    currentTask = taskSelect.value;
+    try {
+        const response = await fetch('/start_session', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ task_type: currentTask })
+        });
+        const data = await response.json();
+        if (data.status === 'success') {
+            startTime = Date.now() / 1000;
+            lastInputTime = startTime;
+            // Reset all metrics
+            charCount = 0;
+            backspaces = 0;
+            lastLength = 0;
+            totalIdle = 0;
+            mousePositions = [];
+            distractedFrames = 0;
+            totalFrames = 0;
+            // Clear typing area
+            typingArea.value = '';
+            // Hide previous report
+            reportResults.classList.add('hidden');
+        }
+    } catch (error) {
+        console.error('Error starting task:', error);
+    }
+}
+
+// Setup webcam
+async function setupWebcam() {
+    try {
+        const constraints = {
+            video: {
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+                facingMode: "user",
+                aspectRatio: 16/9
+            }
+        };
+        
+        videoStream = await navigator.mediaDevices.getUserMedia(constraints);
+        webcam.srcObject = videoStream;
+        
+        // Wait for video to be ready
+        webcam.onloadedmetadata = () => {
+            webcam.play();
+            // Start processing frames
+            processVideoFrame();
+        };
+    } catch (error) {
+        console.error('Error accessing webcam:', error);
+    }
+}
+
+// Process video frames
+async function processVideoFrame() {
+    if (!videoStream) return;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = webcam.videoWidth;
+    canvas.height = webcam.videoHeight;
+    const ctx = canvas.getContext('2d');
+    
+    ctx.drawImage(webcam, 0, 0);
+    const imageData = canvas.toDataURL('image/jpeg');
+
+    try {
+        const response = await fetch('/process_frame', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ image: imageData })
+        });
+        
+        const data = await response.json();
+        if (data.status === 'success') {
+            attentionScoreSpan.textContent = data.attention_score.toFixed(1) + '%';
+            
+            // Display the annotated image
+            const overlayCtx = overlay.getContext('2d');
+            const img = new Image();
+            img.onload = () => {
+                overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+                overlayCtx.drawImage(img, 0, 0, overlay.width, overlay.height);
+            };
+            img.src = data.annotated_image;
+        }
+    } catch (error) {
+        console.error('Error processing frame:', error);
+    }
+
+    requestAnimationFrame(processVideoFrame);
+}
+
+// Setup event listeners
+function setupEventListeners() {
+    // Task selection: start a new task when dropdown changes
+    taskSelect.addEventListener('change', startTask);
+
+    // Typing events
+    typingArea.addEventListener('input', async () => {
+        const currentTime = Date.now() / 1000;
+        const textLen = typingArea.value.length;
+        
+        if (textLen < lastLength) {
+            backspaces++;
+        } else if (textLen > lastLength) {
+            charCount += textLen - lastLength;
+            const idleTime = currentTime - lastInputTime;
+            if (idleTime > 2) {
+                totalIdle += idleTime;
+            }
+            lastInputTime = currentTime;
+        }
+        
+        lastLength = textLen;
+        
+        try {
+            await fetch('/update_typing', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ text: typingArea.value })
+            });
+        } catch (error) {
+            console.error('Error updating typing:', error);
+        }
+    });
+
+    // Mouse events
+    document.addEventListener('mousemove', async (e) => {
+        const currentTime = Date.now() / 1000;
+        mousePositions.push([currentTime, e.pageX, e.pageY]);
+        
+        try {
+            await fetch('/update_mouse', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ x: e.pageX, y: e.pageY })
+            });
+        } catch (error) {
+            console.error('Error updating mouse:', error);
+        }
+    });
+
+    // Generate report
+    generateReportBtn.addEventListener('click', async () => {
+        try {
+            const response = await fetch('/generate_report', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                // Update metrics
+                document.getElementById('typing-speed').textContent = data.metrics.typing_speed.toFixed(2);
+                document.getElementById('backspace-rate').textContent = data.metrics.backspace_rate.toFixed(2);
+                document.getElementById('idle-time-ratio').textContent = data.metrics.idle_time_ratio.toFixed(2);
+                document.getElementById('mouse-speed').textContent = data.metrics.mouse_speed.toFixed(2);
+                document.getElementById('click-frequency').textContent = data.metrics.click_frequency.toFixed(2);
+                document.getElementById('attention-score-value').textContent = data.metrics.attention_score.toFixed(1);
+                
+                // Update LLM report
+                document.getElementById('llm-report').textContent = data.llm_analysis;
+                
+                // Show results
+                reportResults.classList.remove('hidden');
+            } else {
+                // Show error message
+                alert(data.message || 'Error generating report. Please try again.');
+            }
+        } catch (error) {
+            console.error('Error generating report:', error);
+            alert('Error generating report. Please try again.');
+        }
+    });
+}
+
+// Cleanup when page is unloaded
+window.addEventListener('beforeunload', () => {
+    if (videoStream) {
+        videoStream.getTracks().forEach(track => track.stop());
+    }
+});
+</file>
+
+<file path="templates/index.html">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neuronudge - Learning Behavior Tracker</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Neuronudge - Passive Learning Difficulty Screener</h1>
+        
+        <!-- Privacy Disclaimer -->
+        <div class="disclaimer">
+            <p>⚠️ Privacy Notice: This application tracks typing behavior, mouse movements, and webcam attention to analyze learning patterns. All data is processed locally and is not stored or transmitted to any external servers. Your privacy is important to us.</p>
+        </div>
+
+        <!-- Task Selection -->
+        <section class="tracking-section">
+            <h2>📝 Task Selection</h2>
+            <div class="task-selection">
+                <select id="task-type" class="task-select">
+                    <option value="video">Video Learning</option>
+                    <option value="quiz">Quiz Assessment</option>
+                    <option value="notes">Note Taking</option>
+                </select>
+            </div>
+        </section>
+        
+        <!-- Typing Behavior Section -->
+        <section class="tracking-section">
+            <h2>⌨️ Typing Behavior Tracker</h2>
+            <p>Start typing in the box below. Your typing behavior will be monitored.</p>
+            <textarea id="typing-area" placeholder="Start typing to track your behavior..."></textarea>
+        </section>
+
+        <!-- Webcam Section -->
+        <section class="tracking-section">
+            <h2>📸 Webcam Attention Tracker</h2>
+            <div class="webcam-container">
+                <video id="webcam" autoplay playsinline></video>
+                <canvas id="overlay"></canvas>
+            </div>
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <h3>Attention Score</h3>
+                    <div class="metric-value" id="attention-score">100%</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Report Section -->
+        <section class="tracking-section">
+            <h2>📊 Analysis Summary</h2>
+            <button id="generate-report" class="primary-button">Generate Behavior Report</button>
+            <div id="report-results" class="hidden">
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <span class="label">Typing Speed:</span>
+                        <span class="value" id="typing-speed">0</span> chars/sec
+                    </div>
+                    <div class="metric">
+                        <span class="label">Backspace Rate:</span>
+                        <span class="value" id="backspace-rate">0</span>
+                    </div>
+                    <div class="metric">
+                        <span class="label">Idle Time Ratio:</span>
+                        <span class="value" id="idle-time-ratio">0</span>
+                    </div>
+                    <div class="metric">
+                        <span class="label">Mouse Speed:</span>
+                        <span class="value" id="mouse-speed">0</span> px/sec
+                    </div>
+                    <div class="metric">
+                        <span class="label">Click Frequency:</span>
+                        <span class="value" id="click-frequency">0</span> clicks/sec
+                    </div>
+                    <div class="metric">
+                        <span class="label">Attention Score:</span>
+                        <span class="value" id="attention-score-value">0</span>%
+                    </div>
+                </div>
+                
+                <div class="llm-analysis">
+                    <h3>Task-Specific Analysis</h3>
+                    <div id="llm-report" class="report-content"></div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
+</file>
+
+<file path="train_models.py">
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestClassifier
+import joblib
+import os
+
+# Create models directory if it doesn't exist
+if not os.path.exists('models'):
+    os.makedirs('models')
+
+# Generate synthetic data for each task type with ADHD/dyslexia patterns
+def generate_task_data(task_type, n_samples=1000):
+    np.random.seed(42)
+    
+    # Base parameters for each task
+    if task_type == "video":
+        # Video watching patterns
+        # ADHD: Frequent distractions, variable attention
+        # Dyslexia: Less relevant for video watching
+        typing_speed = np.random.normal(1, 0.5, n_samples)
+        backspace_rate = np.random.normal(0.1, 0.05, n_samples)
+        idle_time = np.random.normal(0.4, 0.2, n_samples)  # More idle time
+        mouse_speed = np.random.normal(30, 15, n_samples)
+        click_freq = np.random.normal(3, 1.5, n_samples)
+        attention = np.random.normal(60, 25, n_samples)  # More variable attention
+    elif task_type == "quiz":
+        # Quiz patterns
+        # ADHD: Rushing, frequent corrections, variable speed
+        # Dyslexia: Slow response time, high error rate
+        typing_speed = np.random.normal(4, 2, n_samples)  # Variable speed
+        backspace_rate = np.random.normal(0.25, 0.1, n_samples)  # High correction rate
+        idle_time = np.random.normal(0.2, 0.1, n_samples)
+        mouse_speed = np.random.normal(50, 25, n_samples)  # Erratic movement
+        click_freq = np.random.normal(8, 3, n_samples)  # Frequent clicks
+        attention = np.random.normal(75, 20, n_samples)  # Variable attention
+    else:  # notes
+        # Note-taking patterns
+        # ADHD: Inconsistent speed, frequent pauses
+        # Dyslexia: Slow writing, high error rate
+        typing_speed = np.random.normal(2.5, 1.5, n_samples)  # Variable speed
+        backspace_rate = np.random.normal(0.22, 0.08, n_samples)  # High correction rate
+        idle_time = np.random.normal(0.35, 0.15, n_samples)  # Frequent pauses
+        mouse_speed = np.random.normal(35, 20, n_samples)
+        click_freq = np.random.normal(6, 2, n_samples)
+        attention = np.random.normal(65, 20, n_samples)  # Variable attention
+
+    # Create DataFrame
+    data = pd.DataFrame({
+        'typing_speed': typing_speed,
+        'backspace_rate': backspace_rate,
+        'idle_time_ratio': idle_time,
+        'mouse_speed': mouse_speed,
+        'click_frequency': click_freq,
+        'attention_score': attention
+    })
+
+    # Generate labels for ADHD and dyslexia indicators
+    # ADHD indicators: high variability in speed, frequent pauses, erratic mouse movement
+    adhd_score = (
+        0.3 * (np.abs(typing_speed - np.mean(typing_speed)) > 1.5) +  # Speed variability
+        0.3 * (idle_time > 0.3) +  # Frequent pauses
+        0.2 * (np.abs(mouse_speed - np.mean(mouse_speed)) > 15) +  # Erratic mouse
+        0.2 * (attention < 70)  # Low attention
+    )
+    
+    # Dyslexia indicators: slow typing, high error rate, frequent corrections
+    dyslexia_score = (
+        0.4 * (typing_speed < 3) +  # Slow typing
+        0.4 * (backspace_rate > 0.15) +  # High error rate
+        0.2 * (click_freq > 5)  # Frequent corrections
+    )
+
+    data['adhd_indicator'] = (adhd_score > 0.6).astype(int)
+    data['dyslexia_indicator'] = (dyslexia_score > 0.6).astype(int)
+    return data
+
+def train_task_model(task_type):
+    # Generate data
+    data = generate_task_data(task_type)
+    
+    # Train ADHD model
+    X = data.drop(['adhd_indicator', 'dyslexia_indicator'], axis=1)
+    y_adhd = data['adhd_indicator']
+    
+    # Split into train and test sets
+    X_train, X_test, y_train, y_test = train_test_split(X, y_adhd, test_size=0.2, random_state=42)
+    
+    # Create and fit scaler
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+    
+    # Create and train ADHD model
+    adhd_model = RandomForestClassifier(n_estimators=100, random_state=42)
+    adhd_model.fit(X_train_scaled, y_train)
+    
+    # Train Dyslexia model
+    y_dyslexia = data['dyslexia_indicator']
+    X_train, X_test, y_train, y_test = train_test_split(X, y_dyslexia, test_size=0.2, random_state=42)
+    X_train_scaled = scaler.transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+    
+    dyslexia_model = RandomForestClassifier(n_estimators=100, random_state=42)
+    dyslexia_model.fit(X_train_scaled, y_train)
+    
+    # Save models and scaler
+    joblib.dump(adhd_model, f'models/{task_type}_adhd_model.pkl')
+    joblib.dump(dyslexia_model, f'models/{task_type}_dyslexia_model.pkl')
+    joblib.dump(scaler, f'models/{task_type}_scaler.pkl')
+    
+    # Print model performance
+    print(f"\n{task_type.capitalize()} Model Performance:")
+    
+    print("\nADHD Model:")
+    train_acc_adhd = adhd_model.score(X_train_scaled, y_train)
+    test_acc_adhd = adhd_model.score(X_test_scaled, y_test)
+    print(f"Train accuracy: {train_acc_adhd:.3f}")
+    print(f"Test accuracy: {test_acc_adhd:.3f}")
+    print("Feature importances:")
+    for feature, importance in zip(X.columns, adhd_model.feature_importances_):
+        print(f"{feature}: {importance:.3f}")
+    
+    print("\nDyslexia Model:")
+    train_acc_dys = dyslexia_model.score(X_train_scaled, y_train)
+    test_acc_dys = dyslexia_model.score(X_test_scaled, y_test)
+    print(f"Train accuracy: {train_acc_dys:.3f}")
+    print(f"Test accuracy: {test_acc_dys:.3f}")
+    print("Feature importances:")
+    for feature, importance in zip(X.columns, dyslexia_model.feature_importances_):
+        print(f"{feature}: {importance:.3f}")
+    # Save accuracy scores to a file
+    with open(f'models/{task_type}_accuracy.txt', 'w') as f:
+        f.write(f"ADHD Train Accuracy: {train_acc_adhd:.3f}\n")
+        f.write(f"ADHD Test Accuracy: {test_acc_adhd:.3f}\n")
+        f.write(f"Dyslexia Train Accuracy: {train_acc_dys:.3f}\n")
+        f.write(f"Dyslexia Test Accuracy: {test_acc_dys:.3f}\n")
+
+def main():
+    # Train models for each task type
+    task_types = ["video", "quiz", "notes"]
+    for task_type in task_types:
+        print(f"\nTraining {task_type} models...")
+        train_task_model(task_type)
+
+if __name__ == "__main__":
+    main()
+</file>
+
+</files>

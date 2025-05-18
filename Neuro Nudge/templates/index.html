@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neuronudge - Learning Behavior Tracker</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Neuronudge - Passive Learning Difficulty Screener</h1>
+        
+        <!-- Privacy Disclaimer -->
+        <div class="disclaimer">
+            <p>⚠️ Privacy Notice: This application tracks typing behavior, mouse movements, and webcam attention to analyze learning patterns. All data is processed locally and is not stored or transmitted to any external servers. Your privacy is important to us.</p>
+        </div>
+
+        <!-- Task Selection -->
+        <section class="tracking-section">
+            <h2>📝 Task Selection</h2>
+            <div class="task-selection">
+                <select id="task-type" class="task-select">
+                    <option value="video">Video Learning</option>
+                    <option value="quiz">Quiz Assessment</option>
+                    <option value="notes">Note Taking</option>
+                </select>
+            </div>
+        </section>
+        
+        <!-- Typing Behavior Section -->
+        <section class="tracking-section">
+            <h2>⌨️ Typing Behavior Tracker</h2>
+            <p>Start typing in the box below. Your typing behavior will be monitored.</p>
+            <textarea id="typing-area" placeholder="Start typing to track your behavior..."></textarea>
+        </section>
+
+        <!-- Webcam Section -->
+        <section class="tracking-section">
+            <h2>📸 Webcam Attention Tracker</h2>
+            <div class="webcam-container">
+                <video id="webcam" autoplay playsinline></video>
+                <canvas id="overlay"></canvas>
+            </div>
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <h3>Attention Score</h3>
+                    <div class="metric-value" id="attention-score">100%</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Report Section -->
+        <section class="tracking-section">
+            <h2>📊 Analysis Summary</h2>
+            <button id="generate-report" class="primary-button">Generate Behavior Report</button>
+            <div id="report-results" class="hidden">
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <span class="label">Typing Speed:</span>
+                        <span class="value" id="typing-speed">0</span> chars/sec
+                    </div>
+                    <div class="metric">
+                        <span class="label">Backspace Rate:</span>
+                        <span class="value" id="backspace-rate">0</span>
+                    </div>
+                    <div class="metric">
+                        <span class="label">Idle Time Ratio:</span>
+                        <span class="value" id="idle-time-ratio">0</span>
+                    </div>
+                    <div class="metric">
+                        <span class="label">Mouse Speed:</span>
+                        <span class="value" id="mouse-speed">0</span> px/sec
+                    </div>
+                    <div class="metric">
+                        <span class="label">Click Frequency:</span>
+                        <span class="value" id="click-frequency">0</span> clicks/sec
+                    </div>
+                    <div class="metric">
+                        <span class="label">Attention Score:</span>
+                        <span class="value" id="attention-score-value">0</span>%
+                    </div>
+                </div>
+                
+                <div class="llm-analysis">
+                    <h3>Task-Specific Analysis</h3>
+                    <div id="llm-report" class="report-content"></div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html> 
